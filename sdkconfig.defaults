@@ -1,0 +1,30 @@
+# --- Target ---
+CONFIG_IDF_TARGET="esp32s3"
+
+# --- Console ---
+# Bring-up: the board is on native USB (USB-Serial-JTAG) with no camera yet, so
+# route the console there — flash + monitor share the one USB port.
+# WHEN YOU ADD THE UVC CAMERA: USB-OTG shares the USB PHY with USB-Serial-JTAG,
+# so switch back to UART0 console (set CONFIG_ESP_CONSOLE_UART_DEFAULT=y here).
+CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y
+
+# --- HTTP server WebSocket support ---
+CONFIG_HTTPD_WS_SUPPORT=y
+
+# --- Partition table (3MB factory app, fits >=4MB flash) ---
+CONFIG_PARTITION_TABLE_CUSTOM=y
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
+CONFIG_ESPTOOLPY_FLASHSIZE_4MB=y
+
+# --- Tasks / tick ---
+CONFIG_ESP_MAIN_TASK_STACK_SIZE=8192
+CONFIG_FREERTOS_HZ=1000
+
+# --- PSRAM: required once the camera/spectrum buffers are enabled. ---
+# Leave OFF until you confirm the module. For N16R8 (octal PSRAM) set:
+#   CONFIG_SPIRAM=y
+#   CONFIG_SPIRAM_MODE_OCT=y
+# For quad PSRAM use CONFIG_SPIRAM_MODE_QUAD=y instead.
+
+# --- bring-up only: treat warnings as warnings, not errors ---
+# CONFIG_COMPILER_DISABLE_DEFAULT_ERRORS=y

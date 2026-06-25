@@ -1,0 +1,16 @@
+# ESP-IDF build output
+build/
+managed_components/
+
+# Local SDK/config churn
+sdkconfig.old
+
+# Flashing and monitor logs
+*.log
+*.core
+
+# OS/editor noise
+.DS_Store
+.vscode/
+.idea/
+*.swp

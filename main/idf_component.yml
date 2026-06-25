@@ -1,0 +1,6 @@
+dependencies:
+  idf: ">=6.0"
+  espressif/mdns: "^1.8.0"
+  # Enable the camera (CONFIG_SPECTRUM_ENABLE_CAMERA=y) AND uncomment the line
+  # below to pull in the USB UVC host stack, then `idf.py reconfigure`.
+  # espressif/usb_stream: "*"

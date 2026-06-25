@@ -1,0 +1,131 @@
+menu "Spectrum project configuration"
+
+    menu "WiFi"
+        config SPECTRUM_WIFI_SSID
+            string "SoftAP SSID"
+            default "spectrum"
+            help
+                SSID of the hotspot the ESP32 broadcasts (SoftAP mode). Clients
+                join it and open http://192.168.4.1/ or http://spectrum.local/.
+
+        config SPECTRUM_WIFI_PASSWORD
+            string "SoftAP password"
+            default ""
+            help
+                WPA2 password for the hotspot. Leave empty for an open network.
+                (If set, must be >= 8 chars.)
+
+        config SPECTRUM_MDNS_HOST
+            string "mDNS hostname"
+            default "spectrum"
+            help
+                Hostname for mDNS. Device is reachable at <host>.local.
+    endmenu
+
+    menu "Pins"
+        config SPECTRUM_I2C_SDA_GPIO
+            int "I2C SDA GPIO (IMU)"
+            default 8
+        config SPECTRUM_I2C_SCL_GPIO
+            int "I2C SCL GPIO (IMU)"
+            default 9
+
+        config SPECTRUM_TINYF_RX_GPIO
+            int "UART1 RX GPIO (TinyF, S3 receives)"
+            default 17
+        config SPECTRUM_TINYF_TX_GPIO
+            int "UART1 TX GPIO (TinyF, S3 transmits)"
+            default 18
+
+        config SPECTRUM_SPECTRO_RX_GPIO
+            int "UART2 RX GPIO (H1 spectrometer, S3 receives)"
+            default 15
+        config SPECTRUM_SPECTRO_TX_GPIO
+            int "UART2 TX GPIO (H1 spectrometer, S3 transmits)"
+            default 16
+    endmenu
+
+    menu "IMU (I2C)"
+        config SPECTRUM_IMU_RATE_HZ
+            int "IMU poll rate (Hz)"
+            default 100
+            range 10 200
+
+        config SPECTRUM_IMU_ADDR
+            hex "IMU I2C 7-bit address"
+            default 0x23
+            help
+                Hardware-confirmed 2026-06-06: the bus scan found the (only)
+                device at 0x23. The IMU task scans the bus at boot and logs
+                every responding address.
+
+        config SPECTRUM_IMU_FUNC_EULER
+            hex "Function-code register: Euler angles (12 bytes, 3xfloat rad)"
+            default 0x26
+            help
+                Confirmed 2026-06-06 by register sweep + quaternion cross-check.
+                Register = read start address; reads auto-increment.
+
+        config SPECTRUM_IMU_FUNC_ACCEL
+            hex "Function-code register: accelerometer (6 bytes, 3xint16)"
+            default 0x04
+            help
+                Confirmed 2026-06-06: bytes 0x04..0x09 read 1g on -Y at rest.
+
+        config SPECTRUM_IMU_FUNC_GYRO
+            hex "Function-code register: gyroscope (6 bytes, 3xint16)"
+            default 0x0A
+            help
+                Confirmed 2026-06-06: bytes 0x0A..0x0F read ~0 at rest.
+
+        config SPECTRUM_IMU_EULER_IN_RADIANS
+            bool "Euler angles are in radians (multiply by 57.29578 for degrees)"
+            default y
+            help
+                Disable if the module already reports degrees (+/-180 range).
+
+        config SPECTRUM_IMU_DISCOVER
+            bool "IMU register discovery mode (bring-up only)"
+            default n
+            help
+                Instead of polling, sweep every function-code register on the
+                IMU and log raw bytes + float/int16 interpretations, so the
+                Euler/accel/gyro registers can be identified empirically.
+    endmenu
+
+    menu "Spectrometer (H1)"
+        config SPECTRUM_ENABLE_SPECTRO
+            bool "Enable H1 spectrometer task (UART2)"
+            default n
+
+        config SPECTRUM_SPEC_PERIOD_MS
+            int "Spectrum frame request period (ms)"
+            default 1000
+            range 200 5000
+            depends on SPECTRUM_ENABLE_SPECTRO
+
+        config SPECTRUM_SPEC_AUTO_EXPOSURE
+            bool "Use auto exposure (0x0A=01)"
+            default y
+            depends on SPECTRUM_ENABLE_SPECTRO
+    endmenu
+
+    menu "Camera (USB UVC)"
+        config SPECTRUM_ENABLE_CAMERA
+            bool "Enable USB UVC camera (requires espressif/usb_stream + PSRAM)"
+            default n
+            help
+                Also uncomment espressif/usb_stream in main/idf_component.yml and
+                enable PSRAM in sdkconfig before turning this on.
+
+        config SPECTRUM_CAM_FRAME_W
+            int "Camera frame width"
+            default 640
+            depends on SPECTRUM_ENABLE_CAMERA
+        config SPECTRUM_CAM_FRAME_H
+            int "Camera frame height"
+            default 480
+            depends on SPECTRUM_ENABLE_CAMERA
+    endmenu
+
+endmenu
