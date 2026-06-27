@@ -24,8 +24,8 @@ void app_main(void) {
   state_init();
 
   // Sensors (IMU + spectrometer tasks self-delay ~5.2s past their self-test).
-  imu_start();
-  tinyf_start();
+  // imu_start();
+  // tinyf_start();
   spectro_start(); // no-op unless CONFIG_SPECTRUM_ENABLE_SPECTRO
   camera_start();  // no-op unless CONFIG_SPECTRUM_ENABLE_CAMERA
 

@@ -26,12 +26,17 @@ static SemaphoreHandle_t s_mtx;
 static void frame_cb(uvc_frame_t *frame, void *ptr)
 {
     static int frame_count = 0;
-    if (!frame || frame->data_bytes == 0) {
+    if (!frame) {
+        ESP_LOGW(TAG, "frame_cb: frame is NULL");
+        return;
+    }
+    if (frame->data_bytes == 0) {
+        ESP_LOGW(TAG, "frame_cb: frame data_bytes is 0");
         return;
     }
     frame_count++;
-    if (frame_count % 15 == 0) {
-        ESP_LOGI(TAG, "received 15 frames, size: %d bytes", (int)frame->data_bytes);
+    if (frame_count % 5 == 0 || frame_count < 5) {
+        ESP_LOGI(TAG, "received frame %d, size: %d bytes", frame_count, (int)frame->data_bytes);
     }
     int back = (s_front == 0) ? 1 : 0;
     size_t n = frame->data_bytes;
@@ -58,6 +63,15 @@ bool camera_get_jpeg(const uint8_t **data, size_t *len)
     return (*len > 0);
 }
 
+static void camera_state_cb(usb_stream_state_t state, void *user_ptr)
+{
+    if (state == STREAM_CONNECTED) {
+        ESP_LOGI(TAG, "USB camera CONNECTED!");
+    } else if (state == STREAM_DISCONNECTED) {
+        ESP_LOGW(TAG, "USB camera DISCONNECTED!");
+    }
+}
+
 void camera_start(void)
 {
     s_mtx = xSemaphoreCreateMutex();
@@ -72,9 +86,9 @@ void camera_start(void)
     }
 
     uvc_config_t uvc_config = {
-        .frame_width = FRAME_W,
-        .frame_height = FRAME_H,
-        .frame_interval = FPS2INTERVAL(15),
+        .frame_width = FRAME_RESOLUTION_ANY,
+        .frame_height = FRAME_RESOLUTION_ANY,
+        .frame_interval = FPS2INTERVAL(5),
         .xfer_buffer_size = XFER_SZE,
         .xfer_buffer_a = xfer_a,
         .xfer_buffer_b = xfer_b,
@@ -89,12 +103,16 @@ void camera_start(void)
         ESP_LOGE(TAG, "uvc_streaming_config failed: %s", esp_err_to_name(err));
         return;
     }
+    err = usb_streaming_state_register(&camera_state_cb, NULL);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "usb_streaming_state_register failed: %s", esp_err_to_name(err));
+    }
     err = usb_streaming_start();
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "usb_streaming_start failed: %s", esp_err_to_name(err));
         return;
     }
-    ESP_LOGI(TAG, "USB UVC streaming %dx%d started", FRAME_W, FRAME_H);
+    ESP_LOGI(TAG, "USB UVC streaming started (auto-res)");
 }
 
 #else  /* !CONFIG_SPECTRUM_ENABLE_CAMERA */
