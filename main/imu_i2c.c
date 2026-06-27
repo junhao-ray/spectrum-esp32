@@ -22,7 +22,11 @@ static i2c_master_dev_handle_t s_dev;
 // Write the function-code register, then read n bytes back.
 static esp_err_t read_func(uint8_t func, uint8_t *buf, size_t n)
 {
-    return i2c_master_transmit_receive(s_dev, &func, 1, buf, n, 100);
+    esp_err_t err = i2c_master_transmit(s_dev, &func, 1, 100);
+    if (err != ESP_OK) {
+        return err;
+    }
+    return i2c_master_receive(s_dev, buf, n, 100);
 }
 
 static void bus_scan(void)

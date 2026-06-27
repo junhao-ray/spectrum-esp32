@@ -127,10 +127,14 @@ static esp_err_t stream_get(httpd_req_t *req)
 {
     const uint8_t *jpg;
     size_t len;
+    int wait_limit = 50; // Wait up to 2 seconds for the first frame
+    while (!camera_get_jpeg(&jpg, &len) && wait_limit-- > 0) {
+        vTaskDelay(pdMS_TO_TICKS(40));
+    }
     if (!camera_get_jpeg(&jpg, &len)) {
         httpd_resp_set_status(req, "503 Service Unavailable");
         httpd_resp_set_type(req, "text/plain");
-        httpd_resp_sendstr(req, "camera disabled");
+        httpd_resp_sendstr(req, "camera disabled or no frame yet");
         return ESP_OK;
     }
     httpd_resp_set_type(req, "multipart/x-mixed-replace;boundary=frame");
@@ -193,7 +197,9 @@ static void ws_broadcast(const char *data, size_t len)
     frame.len = len;
     for (size_t i = 0; i < num; i++) {
         if (httpd_ws_get_fd_info(s_server, fds[i]) == HTTPD_WS_CLIENT_WEBSOCKET) {
-            httpd_ws_send_frame_async(s_server, fds[i], &frame);
+            if (httpd_ws_send_frame_async(s_server, fds[i], &frame) != ESP_OK) {
+                httpd_sess_trigger_close(s_server, fds[i]);
+            }
         }
     }
 }
@@ -207,6 +213,7 @@ static void ws_push_task(void *arg)
         ws_broadcast(mbuf, ml);
 
         if ((tick % 20) == 0) {     // 1 Hz spectrum
+            vTaskDelay(pdMS_TO_TICKS(50));
             char *sjson = build_spectrum_json(false);
             if (sjson) {
                 ws_broadcast(sjson, strlen(sjson));

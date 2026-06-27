@@ -14,7 +14,7 @@ static const char *TAG = "camera";
 
 #define FRAME_W      CONFIG_SPECTRUM_CAM_FRAME_W
 #define FRAME_H      CONFIG_SPECTRUM_CAM_FRAME_H
-#define XFER_SZE     (32 * 1024)
+#define XFER_SZE     (128 * 1024)
 #define FRAME_SZE    (FRAME_W * FRAME_H * 2)   // generous MJPEG ceiling
 
 // Double buffer in PSRAM; the UVC callback fills the back buffer, then flips.
@@ -25,8 +25,13 @@ static SemaphoreHandle_t s_mtx;
 
 static void frame_cb(uvc_frame_t *frame, void *ptr)
 {
+    static int frame_count = 0;
     if (!frame || frame->data_bytes == 0) {
         return;
+    }
+    frame_count++;
+    if (frame_count % 15 == 0) {
+        ESP_LOGI(TAG, "received 15 frames, size: %d bytes", (int)frame->data_bytes);
     }
     int back = (s_front == 0) ? 1 : 0;
     size_t n = frame->data_bytes;

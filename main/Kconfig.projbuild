@@ -32,10 +32,10 @@ menu "Spectrum project configuration"
 
         config SPECTRUM_TINYF_RX_GPIO
             int "UART1 RX GPIO (TinyF, S3 receives)"
-            default 17
+            default 10
         config SPECTRUM_TINYF_TX_GPIO
             int "UART1 TX GPIO (TinyF, S3 transmits)"
-            default 18
+            default 11
 
         config SPECTRUM_SPECTRO_RX_GPIO
             int "UART2 RX GPIO (H1 spectrometer, S3 receives)"

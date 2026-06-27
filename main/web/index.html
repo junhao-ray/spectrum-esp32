@@ -77,14 +77,54 @@ function wlRGB(wl){let r=0,gg=0,b=0;
  else{r=gg=b=.25;} if(wl<380||wl>780){r=gg=b=.3;}
  return `rgb(${r*255|0},${gg*255|0},${b*255|0})`;}
 const sc=$("spec"),sg=sc.getContext("2d");
-function drawSpec(d){const W=sc.width,H=sc.height,n=d.n_points,arr=d.spectrum;
- sg.clearRect(0,0,W,H); if(!n||!arr)return; let mx=1; for(const v of arr) if(v>mx)mx=v;
- const x=i=>i/(n-1)*W, y=v=>H-(v/mx)*(H-12)-4, wl=i=>d.wl_start+(d.wl_end-d.wl_start)*i/(n-1);
- for(let i=0;i<n-1;i++){sg.beginPath();sg.moveTo(x(i),H);sg.lineTo(x(i),y(arr[i]));
-   sg.lineTo(x(i+1),y(arr[i+1]));sg.lineTo(x(i+1),H);sg.closePath();
-   sg.fillStyle=wlRGB(wl(i));sg.globalAlpha=.55;sg.fill();sg.globalAlpha=1;}
- sg.strokeStyle="#cde3ff";sg.lineWidth=1.5;sg.beginPath();
- for(let i=0;i<n;i++){const px=x(i),py=y(arr[i]);i?sg.lineTo(px,py):sg.moveTo(px,py);}sg.stroke();}
+let currentSpec = [];
+let targetSpec = [];
+let currentCCT = 0, targetCCT = 0;
+let currentLux = 0, targetLux = 0;
+let currentRa = 0, targetRa = 0;
+let wlStart = 340, wlEnd = 1050, nPoints = 0;
+
+function animLoop() {
+  if (targetSpec.length > 0) {
+    if (currentSpec.length !== targetSpec.length) {
+      currentSpec = [...targetSpec];
+    }
+    for (let i = 0; i < targetSpec.length; i++) {
+      currentSpec[i] += (targetSpec[i] - currentSpec[i]) * 0.15;
+    }
+  }
+  if (targetCCT > 0) currentCCT += (targetCCT - currentCCT) * 0.15;
+  if (targetLux > 0) currentLux += (targetLux - currentLux) * 0.15;
+  if (targetRa > 0) currentRa += (targetRa - currentRa) * 0.15;
+
+  if (nPoints > 0) {
+    drawSpecRaw(currentSpec, nPoints, wlStart, wlEnd);
+  }
+  if (currentCCT > 0) $("cct").textContent = Math.round(currentCCT);
+  if (currentLux > 0) $("lux").textContent = currentLux.toFixed(1);
+  if (currentRa > 0) $("ra").textContent = currentRa.toFixed(1);
+
+  requestAnimationFrame(animLoop);
+}
+requestAnimationFrame(animLoop);
+
+function drawSpecRaw(arr, n, w_start, w_end) {
+  const W=sc.width,H=sc.height;
+  sg.clearRect(0,0,W,H); if(!n||!arr)return; let mx=1; for(const v of arr) if(v>mx)mx=v;
+  const x=i=>i/(n-1)*W, y=v=>H-(v/mx)*(H-12)-4, wl=i=>w_start+(w_end-w_start)*i/(n-1);
+  for(let i=0;i<n-1;i++){sg.beginPath();sg.moveTo(x(i),H);sg.lineTo(x(i),y(arr[i]));
+    sg.lineTo(x(i+1),y(arr[i+1]));sg.lineTo(x(i+1),H);sg.closePath();
+    sg.fillStyle=wlRGB(wl(i));sg.globalAlpha=.55;sg.fill();sg.globalAlpha=1;}
+  sg.strokeStyle="#cde3ff";sg.lineWidth=1.5;sg.beginPath();
+  for(let i=0;i<n;i++){const px=x(i),py=y(arr[i]);i?sg.lineTo(px,py):sg.moveTo(px,py);}sg.stroke();
+}
+
+function drawSpec(d) {
+  targetSpec = [...d.spectrum];
+  nPoints = d.n_points;
+  wlStart = d.wl_start;
+  wlEnd = d.wl_end;
+}
 
 const f=(v,n=2)=>(v>=0?"+":"")+(+v).toFixed(n);
 let lastFast=0,lastSpec=0;
@@ -99,8 +139,10 @@ function onMotion(d){lastFast=Date.now();$("attCard").classList.remove("stale");
   $("cfBar").style.width=Math.min(100,d.tof.confidence/62*100)+"%";
   $("cfBar").style.background=d.tof.confidence<5?"var(--warn)":"var(--accent)";}}
 function onSpectrum(d){lastSpec=Date.now();if(!d.valid)return;$("specCard").classList.remove("stale");
- drawSpec(d);$("cct").textContent=Math.round(d.cct);$("lux").textContent=d.lux.toFixed(1);
- $("ra").textContent=d.ra.toFixed(1);$("xy").textContent=d.x.toFixed(3)+","+d.y.toFixed(3);
+ drawSpec(d);
+ if (currentCCT === 0) { currentCCT = d.cct; currentLux = d.lux; currentRa = d.ra; currentSpec = [...d.spectrum]; }
+ targetCCT = d.cct; targetLux = d.lux; targetRa = d.ra;
+ $("xy").textContent=d.x.toFixed(3)+","+d.y.toFixed(3);
  $("lp").textContent=Math.round(d.peak_nm);
  $("exp").textContent=({0:"OK",1:"OVER",2:"UNDER"})[d.exposure_status]+" "+(d.exposure_us/1000).toFixed(1)+"ms";
  $("exp").style.color=d.exposure_status?"var(--warn)":"#fff";}

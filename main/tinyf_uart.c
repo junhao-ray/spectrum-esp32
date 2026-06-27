@@ -42,17 +42,23 @@ static void parse_line(char *line)
 
 static void tinyf_task(void *arg)
 {
+    vTaskDelay(pdMS_TO_TICKS(5200));
     uint8_t data[256];
     char line[128];
     int li = 0;
     int64_t last_diag = 0;
+    int64_t last_heartbeat = 0;
     uint32_t total = 0;
+
+    ESP_LOGI(TAG, "tinyf_task started, listening on UART%d GPIO%d",
+             PORT, CONFIG_SPECTRUM_TINYF_RX_GPIO);
 
     while (1) {
         int n = uart_read_bytes(PORT, data, sizeof(data), pdMS_TO_TICKS(100));
+        int64_t now = esp_timer_get_time();
+
         if (n > 0) {
             total += n;
-            int64_t now = esp_timer_get_time();
             if (now - last_diag > 1000000) {   // ~1 Hz raw diagnostic
                 last_diag = now;
                 char hx[100];
@@ -63,6 +69,18 @@ static void tinyf_task(void *arg)
                 ESP_LOGI(TAG, "rx %d bytes (total=%u): %s", n, (unsigned)total, hx);
             }
         }
+
+        // 心跳：每 5 秒打印一次，方便判断任务是否在跑以及有无字节到来
+        if (now - last_heartbeat > 5000000) {
+            last_heartbeat = now;
+            if (total == 0) {
+                ESP_LOGW(TAG, "heartbeat: NO bytes received — check TinyF power & wiring on GPIO%d",
+                         CONFIG_SPECTRUM_TINYF_RX_GPIO);
+            } else {
+                ESP_LOGI(TAG, "heartbeat: total=%u bytes received so far", (unsigned)total);
+            }
+        }
+
         for (int i = 0; i < n; i++) {
             char c = (char)data[i];
             if (c == '\n' || c == '\r') {
@@ -80,71 +98,8 @@ static void tinyf_task(void *arg)
     }
 }
 
-// Diagnostic: sample the RX line before claiming it for UART. A powered TinyF
-// idles its TX high; data shows as a mix of high/low; an unpowered/disconnected
-// line reads non-high or floating.
-// Check one pin: count UART edges (data) and whether it survives an internal
-// pull-down (actively driven). Logs only "interesting" pins (data or driven),
-// plus 17/18. Returns true if interesting.
-static bool probe_pin_report(int pin)
-{
-    gpio_config_t io = {
-        .pin_bit_mask = 1ULL << pin,
-        .mode = GPIO_MODE_INPUT,
-        .pull_up_en = GPIO_PULLUP_DISABLE,
-        .pull_down_en = GPIO_PULLDOWN_DISABLE,
-    };
-    gpio_config(&io);
-    int edges = 0, prev = -1;
-    for (int i = 0; i < 2000; i++) {   // 100ms @ 50us
-        int v = gpio_get_level(pin);
-        if (prev >= 0 && v != prev) edges++;
-        prev = v;
-        esp_rom_delay_us(50);
-    }
-    io.pull_down_en = GPIO_PULLDOWN_ENABLE;
-    gpio_config(&io);
-    esp_rom_delay_us(2000);
-    int pd = 0;
-    for (int i = 0; i < 50; i++) {
-        pd += gpio_get_level(pin);
-        esp_rom_delay_us(50);
-    }
-    io.pull_down_en = GPIO_PULLDOWN_DISABLE;
-    gpio_config(&io);
-
-    bool interesting = (edges > 0) || (pd > 25);
-    if (interesting || pin == 17 || pin == 18) {
-        const char *tag = edges > 0 ? "  <-- DATA (TXD here!)"
-                        : (pd > 25 ? "  <-- driven high" : "");
-        ESP_LOGI(TAG, "  GPIO%-2d: edges=%d pulldown_high=%d/50%s", pin, edges, pd, tag);
-    }
-    return interesting;
-}
-
-static void probe_rx_line(void)
-{
-    // Broad set of safe-to-read GPIOs (excludes I2C 8/9, USB 19/20,
-    // flash/PSRAM 26-37). Includes the silk "TX/RX" pins 43/44.
-    static const int pins[] = {
-        0, 1, 2, 3, 4, 5, 6, 7, 10, 11, 12, 13, 14, 15, 16, 17, 18, 21,
-        38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48,
-    };
-    ESP_LOGI(TAG, "scanning GPIOs for the TinyF TXD line (edges=live data, "
-                  "pulldown_high=actively driven):");
-    int found = 0;
-    for (int i = 0; i < (int)(sizeof(pins) / sizeof(pins[0])); i++) {
-        if (probe_pin_report(pins[i])) {
-            found++;
-        }
-    }
-    ESP_LOGI(TAG, "scan done: %d interesting pin(s) (0 = TXD not reaching any scanned GPIO)", found);
-}
-
 void tinyf_start(void)
 {
-    probe_rx_line();
-
     uart_config_t cfg = {
         .baud_rate = 115200,
         .data_bits = UART_DATA_8_BITS,
@@ -159,7 +114,8 @@ void tinyf_start(void)
                                  CONFIG_SPECTRUM_TINYF_TX_GPIO,
                                  CONFIG_SPECTRUM_TINYF_RX_GPIO,
                                  UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE));
-    ESP_LOGI(TAG, "TinyF on UART1 (RX=%d TX=%d)",
+    ESP_LOGI(TAG, "TinyF on UART1 (RX=%d TX=%d) @ 115200",
              CONFIG_SPECTRUM_TINYF_RX_GPIO, CONFIG_SPECTRUM_TINYF_TX_GPIO);
     xTaskCreate(tinyf_task, "tinyf_task", 3072, NULL, 5, NULL);
 }
+

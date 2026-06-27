@@ -45,12 +45,12 @@ static int read_exact(uint8_t *buf, int n, int to_ms)
 
 // Sync to CC 81, read LEN, read the rest, verify checksum + terminator.
 // Returns total frame length, or -1 on failure. TYPE is pkt[5].
-static int read_frame(uint8_t *pkt)
+static int read_frame(uint8_t *pkt, int sync_to_ms)
 {
     uint8_t b;
     bool synced = false;
     for (int i = 0; i < RX_BUF && !synced; i++) {
-        if (read_exact(&b, 1, 300) != 1) {
+        if (read_exact(&b, 1, sync_to_ms) != 1) {
             return -1;
         }
         if (b != 0xCC) {
@@ -95,15 +95,21 @@ static int read_frame(uint8_t *pkt)
 }
 
 // Read frames until one of the wanted TYPE arrives (a few attempts).
-static int read_frame_type(uint8_t *pkt, uint8_t want)
+static int read_frame_type(uint8_t *pkt, uint8_t want, int sync_to_ms)
 {
-    for (int attempt = 0; attempt < 6; attempt++) {
-        int len = read_frame(pkt);
+    for (int attempt = 0; attempt < 12; attempt++) {
+        int len = read_frame(pkt, sync_to_ms);
         if (len < 0) {
-            return -1;
+            continue; // Keep trying next frames even if this one had a checksum or timeout error
         }
         if (pkt[5] == want) {
+            if (want == 0x32 && len == 10 && pkt[6] == 0xFF) {
+                ESP_LOGI(TAG, "received 0x32 ACK (0xFF), waiting for data...");
+                continue;
+            }
             return len;
+        } else {
+            ESP_LOGI(TAG, "ignored unexpected frame type 0x%02X (waiting for 0x%02X)", pkt[5], want);
         }
     }
     return -1;
@@ -121,7 +127,7 @@ static void parse_spectrum(const uint8_t *pkt, int len,
     memset(&s, 0, sizeof(s));
 
     if (dlen < 1 + 4 + 47 * 4 + 4 + 3 * 4 + 16 * 4 + 2) {
-        ESP_LOGW(TAG, "frame too short (%d)", dlen);
+        ESP_LOGW(TAG, "frame too short (%d), payload data: 0x%02X", dlen, d[0]);
         return;
     }
 
@@ -157,6 +163,11 @@ static void parse_spectrum(const uint8_t *pkt, int len,
     s.spec_valid = true;
     s.spec_ts = esp_timer_get_time();
     state_set_spec(&s);
+
+    // Print key photometric metrics to serial terminal for easy reading
+    ESP_LOGI(TAG, "Data: CCT=%.0fK Lux=%.1f Ra=%.1f Peak=%.0fnm x,y=%.4f,%.4f pts=%u exp_stat=%u(%.1fms)",
+             s.cct, s.lux, s.ra, s.peak_nm, s.x, s.y, s.n_points,
+             s.exposure_status, (float)s.exposure_us / 1000.0f);
 }
 
 static void spectro_task(void *arg)
@@ -170,19 +181,24 @@ static void spectro_task(void *arg)
         return;
     }
 
-    // Ensure stream mode + (optionally) auto exposure.
+    // 1. Ensure stream mode and consume its handshake response (0x41)
     uart_write_bytes(PORT, CMD_STREAM, sizeof(CMD_STREAM));
-    vTaskDelay(pdMS_TO_TICKS(50));
+    int rc = read_frame_type(pkt, 0x41, 300);
+    ESP_LOGI(TAG, "set stream mode response: %d", rc);
+
 #if CONFIG_SPECTRUM_SPEC_AUTO_EXPOSURE
+    // 2. Ensure auto exposure and consume its handshake response (0x0A)
     uart_write_bytes(PORT, CMD_AUTO_EXP, sizeof(CMD_AUTO_EXP));
-    vTaskDelay(pdMS_TO_TICKS(50));
+    rc = read_frame_type(pkt, 0x0A, 300);
+    ESP_LOGI(TAG, "set auto exposure response: %d", rc);
 #endif
+
     uart_flush_input(PORT);
 
-    // Fetch wavelength range once.
+    // 3. Fetch wavelength range once.
     uint16_t wl_start = 340, wl_end = 1050;
     uart_write_bytes(PORT, CMD_GET_WL, sizeof(CMD_GET_WL));
-    int len = read_frame_type(pkt, 0x0F);
+    int len = read_frame_type(pkt, 0x0F, 300);
     if (len > 0) {
         wl_start = pkt[6] | (pkt[7] << 8);
         wl_end   = pkt[8] | (pkt[9] << 8);
@@ -194,7 +210,8 @@ static void spectro_task(void *arg)
     while (1) {
         uart_flush_input(PORT);
         uart_write_bytes(PORT, CMD_SINGLE, sizeof(CMD_SINGLE));
-        len = read_frame_type(pkt, 0x32);
+        // Single frame capture may take time due to auto-exposure, use 1500ms timeout
+        len = read_frame_type(pkt, 0x32, 1500);
         if (len > 0) {
             parse_spectrum(pkt, len, wl_start, wl_end);
         }
